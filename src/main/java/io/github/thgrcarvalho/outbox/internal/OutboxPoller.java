@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-public final class OutboxPoller {
+public class OutboxPoller {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPoller.class);
 
@@ -33,7 +33,7 @@ public final class OutboxPoller {
     public void setOnFailed(Runnable r)       { this.onFailed       = r; }
     public void setOnDeadLettered(Runnable r) { this.onDeadLettered = r; }
 
-    @Scheduled(fixedDelayString = "#{@outboxProperties.pollIntervalMs}")
+    @Scheduled(fixedDelayString = "${outbox.poll-interval-ms:5000}")
     @Transactional
     public void poll() {
         List<OutboxEvent> batch = store.claimBatch(

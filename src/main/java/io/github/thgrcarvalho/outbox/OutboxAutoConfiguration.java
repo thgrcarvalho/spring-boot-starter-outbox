@@ -25,11 +25,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableConfigurationProperties(OutboxProperties.class)
 public class OutboxAutoConfiguration {
 
-    @Bean
-    OutboxProperties outboxProperties() {
-        return new OutboxProperties();
-    }
-
     // Redis store — preferred when Redis is configured
     @Configuration
     @ConditionalOnClass(name = "org.springframework.data.redis.connection.RedisConnectionFactory")
