@@ -11,21 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Background poller that claims pending outbox events and delivers them.
- *
- * <p>Each poll cycle runs inside a single transaction:
- * <ol>
- *   <li>Claim a batch via {@code SELECT FOR UPDATE SKIP LOCKED} — safe for concurrent polling.</li>
- *   <li>For each event: call {@link OutboxPublisher#publish} then {@code markPublished}.</li>
- *   <li>If publishing fails: call {@code markFailed} (which tracks attempts and eventually
- *       moves the event to {@code FAILED} status after {@code maxAttempts}).</li>
- *   <li>Commit — all markPublished/markFailed writes are durable.</li>
- * </ol>
- *
- * <p><strong>At-least-once:</strong> if the process crashes after publishing but before
- * committing, the event will be re-delivered on the next poll. Consumers must be idempotent.</p>
- */
 public final class OutboxPoller {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPoller.class);
@@ -34,11 +19,19 @@ public final class OutboxPoller {
     private final OutboxPublisher publisher;
     private final OutboxProperties properties;
 
+    private Runnable onPublished    = () -> {};
+    private Runnable onFailed       = () -> {};
+    private Runnable onDeadLettered = () -> {};
+
     public OutboxPoller(OutboxStore store, OutboxPublisher publisher, OutboxProperties properties) {
         this.store = store;
         this.publisher = publisher;
         this.properties = properties;
     }
+
+    public void setOnPublished(Runnable r)    { this.onPublished    = r; }
+    public void setOnFailed(Runnable r)       { this.onFailed       = r; }
+    public void setOnDeadLettered(Runnable r) { this.onDeadLettered = r; }
 
     @Scheduled(fixedDelayString = "#{@outboxProperties.pollIntervalMs}")
     @Transactional
@@ -56,11 +49,16 @@ public final class OutboxPoller {
             try {
                 publisher.publish(event);
                 store.markPublished(event.id());
+                onPublished.run();
                 published++;
             } catch (Exception e) {
+                boolean isLastAttempt = event.attempts() + 1 >= properties.getMaxAttempts();
                 store.markFailed(event.id(), e.getMessage(), properties.getMaxAttempts());
-                log.warn("Outbox: failed to publish event {} (type={}, attempt={}): {}",
-                        event.id(), event.eventType(), event.attempts() + 1, e.getMessage());
+                onFailed.run();
+                if (isLastAttempt) onDeadLettered.run();
+                log.warn("Outbox: failed to publish event {} (type={}, attempt={}/{}): {}",
+                        event.id(), event.eventType(),
+                        event.attempts() + 1, properties.getMaxAttempts(), e.getMessage());
                 failed++;
             }
         }

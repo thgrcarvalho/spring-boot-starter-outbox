@@ -35,7 +35,7 @@ The event is written to an `outbox_event` table in the same transaction as the b
 **Gradle:**
 ```groovy
 dependencies {
-    implementation 'io.github.thgrcarvalho:spring-boot-starter-outbox:0.1.0'
+    implementation 'io.github.thgrcarvalho:spring-boot-starter-outbox:0.2.0'
 }
 ```
 
@@ -44,7 +44,7 @@ dependencies {
 <dependency>
     <groupId>io.github.thgrcarvalho</groupId>
     <artifactId>spring-boot-starter-outbox</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -108,9 +108,36 @@ outbox:
 
 Consider pairing this starter with [spring-boot-starter-idempotency](https://github.com/thgrcarvalho/spring-boot-starter-idempotency) on the consumer side.
 
-## `SELECT FOR UPDATE SKIP LOCKED`
+## Storage backends
 
-The JDBC store uses this PostgreSQL primitive to claim batches atomically. Multiple poller instances can run concurrently — each claims a different batch of rows without coordination. Rows locked by one instance are invisible to others until the transaction commits.
+### JDBC (default when a `JdbcTemplate` bean is present)
+
+Uses PostgreSQL's `SELECT FOR UPDATE SKIP LOCKED` — multiple poller instances can run concurrently, each claiming a distinct batch. Events are written in the same database transaction as your business data. Use this when you need true atomicity.
+
+### Redis (when a `RedisConnectionFactory` bean is present)
+
+```java
+@Bean
+OutboxStore redisOutboxStore(RedisConnectionFactory connectionFactory) {
+    return new RedisOutboxStore(connectionFactory);
+}
+```
+
+Uses sorted sets for insertion-order delivery and `ZPOPMIN` for atomic batch claiming. Supports back-off retry (attempt × 5s delay). **Does not participate in `@Transactional` boundaries** — events are saved to Redis independently. Use the JDBC store when atomicity with DB writes is required.
+
+### In-memory (fallback when neither JDBC nor Redis is configured)
+
+No persistence — suitable only for testing.
+
+## Metrics
+
+When `micrometer-core` is on the classpath, the poller registers:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `outbox.events.published` | Counter | Successfully delivered events |
+| `outbox.events.failed` | Counter | Transient failures (will retry) |
+| `outbox.events.dead_lettered` | Counter | Events moved to FAILED after max attempts |
 
 ## Running tests
 
@@ -118,8 +145,8 @@ The JDBC store uses this PostgreSQL primitive to claim batches atomically. Multi
 ./gradlew test
 ```
 
-Integration tests run against H2 in-memory. The JDBC store is tested end-to-end including retry and failure scenarios.
+Integration tests run against H2 in-memory (JDBC store) and a Testcontainers Redis instance (Redis store).
 
 ## Tech
 
-Java 21 · Spring Boot 3 (autoconfigure, jdbc) · H2 (test) · Gradle · JUnit 5
+Java 21 · Spring Boot 3 (autoconfigure, jdbc, data-redis) · H2 · Testcontainers · Gradle · JUnit 5
