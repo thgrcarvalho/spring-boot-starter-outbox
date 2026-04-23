@@ -1,0 +1,109 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+    id 'jacoco'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'com.gradleup.nmcp' version '1.4.4'
+}
+
+group = 'io.github.thgrcarvalho'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencyManagement {
+    imports {
+        mavenBom 'org.springframework.boot:spring-boot-dependencies:3.4.5'
+    }
+}
+
+dependencies {
+    compileOnly 'org.springframework.boot:spring-boot-autoconfigure'
+    compileOnly 'org.springframework.boot:spring-boot-starter-jdbc'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    testImplementation 'com.h2database:h2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+    }
+}
+
+javadoc {
+    exclude '**/internal/**'
+    options.addStringOption('Xdoclint:all,-missing', '-quiet')
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            pom {
+                name = 'spring-boot-starter-outbox'
+                description = 'Spring Boot starter implementing the transactional outbox pattern. Guarantees at-least-once event delivery by writing events to a DB table in the same transaction as business data, then polling to publish them.'
+                url = 'https://github.com/thgrcarvalho/spring-boot-starter-outbox'
+                licenses {
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'thgrcarvalho'
+                        name = 'Thiago Rodrigues Carvalho'
+                        email = 'thgrcarvalho@gmail.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/thgrcarvalho/spring-boot-starter-outbox.git'
+                    developerConnection = 'scm:git:ssh://github.com/thgrcarvalho/spring-boot-starter-outbox.git'
+                    url = 'https://github.com/thgrcarvalho/spring-boot-starter-outbox'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'staging'
+            url = layout.buildDirectory.dir('staging-deploy')
+        }
+    }
+}
+
+signing {
+    def signingKey = findProperty('signingKey')
+    def signingPassword = findProperty('signingPassword')
+    useInMemoryPgpKeys(signingKey, signingPassword)
+    sign publishing.publications.mavenJava
+}
+
+nmcp {
+    publishAllPublicationsToCentralPortal {
+        username = providers.gradleProperty('sonatypeUsername')
+        password = providers.gradleProperty('sonatypePassword')
+        publishingType = 'AUTOMATIC'
+    }
+}
